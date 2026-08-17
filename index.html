@@ -927,30 +927,6 @@
             }
         }
 
-        function enableGyro() {
-            window.addEventListener('deviceorientation', onDeviceOrientation, true);
-            state.gyroMode = true;
-            const btnGyro = document.getElementById('btn-gyro-mode');
-            btnGyro.classList.add('bg-cyan-500/30', 'border', 'border-cyan-400');
-            showNotification('Gyroscope Navigation Enabled');
-        }
-
-        function disableGyro() {
-            window.removeEventListener('deviceorientation', onDeviceOrientation, true);
-            state.gyroMode = false;
-            const btnGyro = document.getElementById('btn-gyro-mode');
-            btnGyro.classList.remove('bg-cyan-500/30', 'border', 'border-cyan-400');
-            showNotification('Gyroscope Disabled');
-        }
-
-        function onDeviceOrientation(event) {
-            if (event.alpha !== null && event.beta !== null && event.gamma !== null) {
-                state.gyroAlpha = event.alpha;
-                state.gyroBeta = event.beta;
-                state.gyroGamma = event.gamma;
-            }
-        }
-
         function showNotification(message) {
             let toast = document.getElementById('toast-notification');
             if (!toast) {
