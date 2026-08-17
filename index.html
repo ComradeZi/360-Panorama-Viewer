@@ -68,6 +68,10 @@
             height: 100%;
             overflow: hidden;
             cursor: grab;
+            touch-action: none;
+        }
+        #viewer-container canvas {
+            touch-action: none;
         }
         #viewer-container:active {
             cursor: grabbing;
@@ -605,11 +609,17 @@
         function setupEventListeners() {
             const dom = renderer.domElement;
 
-            // Mouse / Touch Drag Control
+            // Mouse / Pointer Drag Control
             dom.addEventListener('pointerdown', onPointerDown);
             dom.addEventListener('pointermove', onPointerMove);
             dom.addEventListener('pointerup', onPointerUp);
             dom.addEventListener('wheel', onDocumentMouseWheel, { passive: false });
+
+            // Touch Gestures (Mobile Panning & Pinch-to-Zoom)
+            dom.addEventListener('touchstart', onTouchStart, { passive: false });
+            dom.addEventListener('touchmove', onTouchMove, { passive: false });
+            dom.addEventListener('touchend', onTouchEnd, { passive: false });
+            dom.addEventListener('touchcancel', onTouchEnd, { passive: false });
 
             // Window Resize
             window.addEventListener('resize', onWindowResize);
@@ -732,6 +742,65 @@
 
         function onPointerUp() {
             state.isUserInteracting = false;
+        }
+
+        // Mobile Touch Gestures (Single-Finger Panning & Two-Finger Pinch-to-Zoom)
+        let touchStartDist = 0;
+        let touchStartFov = 75;
+
+        function onTouchStart(event) {
+            if (event.cancelable) event.preventDefault();
+
+            if (event.touches.length === 1) {
+                if (state.addingHotspotMode) {
+                    placeHotspotAtClick(event.touches[0]);
+                    return;
+                }
+                state.isUserInteracting = true;
+                state.onMouseDownPointerX = event.touches[0].clientX;
+                state.onMouseDownPointerY = event.touches[0].clientY;
+                state.onMouseDownLon = state.lon;
+                state.onMouseDownLat = state.lat;
+            } else if (event.touches.length === 2) {
+                state.isUserInteracting = false;
+                const dx = event.touches[0].clientX - event.touches[1].clientX;
+                const dy = event.touches[0].clientY - event.touches[1].clientY;
+                touchStartDist = Math.hypot(dx, dy);
+                touchStartFov = state.fov;
+            }
+        }
+
+        function onTouchMove(event) {
+            if (event.cancelable) event.preventDefault();
+
+            if (event.touches.length === 1 && state.isUserInteracting) {
+                const factor = (state.fov / 75) * 0.15 * state.sensitivity;
+                state.lon = (state.onMouseDownPointerX - event.touches[0].clientX) * factor + state.onMouseDownLon;
+                state.lat = (event.touches[0].clientY - state.onMouseDownPointerY) * factor + state.onMouseDownLat;
+            } else if (event.touches.length === 2 && touchStartDist > 0) {
+                const dx = event.touches[0].clientX - event.touches[1].clientX;
+                const dy = event.touches[0].clientY - event.touches[1].clientY;
+                const dist = Math.hypot(dx, dy);
+
+                if (dist > 10) {
+                    const factor = touchStartDist / dist;
+                    updateFov(touchStartFov * factor);
+                }
+            }
+        }
+
+        function onTouchEnd(event) {
+            if (event.touches.length === 0) {
+                state.isUserInteracting = false;
+                touchStartDist = 0;
+            } else if (event.touches.length === 1) {
+                touchStartDist = 0;
+                state.isUserInteracting = true;
+                state.onMouseDownPointerX = event.touches[0].clientX;
+                state.onMouseDownPointerY = event.touches[0].clientY;
+                state.onMouseDownLon = state.lon;
+                state.onMouseDownLat = state.lat;
+            }
         }
 
         function onDocumentMouseWheel(event) {
