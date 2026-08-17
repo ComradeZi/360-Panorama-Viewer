@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950 text-slate-100 dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>360° Panorama VR Viewer Studio</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f6ff',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                            900: '#1e3a8a',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Three.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Custom styling -->
+    <style>
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(51, 65, 85, 0.8);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(71, 85, 105, 1);
+        }
+        /* Glassmorphism utility */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glass-button {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            transition: all 0.2s ease;
+        }
+        .glass-button:hover {
+            background: rgba(51, 65, 85, 0.9);
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+        /* Canvas positioning */
+        #viewer-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            cursor: grab;
+        }
+        #viewer-container:active {
+            cursor: grabbing;
+        }
+        /* Pulsing animation for hotspots */
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.8; }
+            50% { transform: scale(1.3); opacity: 0.3; }
+            100% { transform: scale(0.8); opacity: 0.8; }
+        }
+        .hotspot-ring {
+            animation: pulse-ring 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="h-full flex flex-col font-sans antialiased select-none overflow-hidden bg-slate-950 text-slate-100">
+
+    <!-- Top Header Navigation -->
+    <header class="h-14 border-b border-slate-800/80 bg-slate-900/90 px-4 flex items-center justify-between z-30 shrink-0">
+        <div class="flex items-center space-x-3">
+            <div class="p-2 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-xl shadow-lg shadow-blue-500/20 flex items-center justify-center">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="font-bold text-base tracking-wide text-white flex items-center gap-2">
+                    PANORAMA<span class="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400 border border-blue-500/30 font-semibold">360° VR</span>
+                </h1>
+            </div>
+        </div>
+
+        <!-- Quick Top Controls -->
+        <div class="flex items-center space-x-2">
+            <!-- Upload Button -->
+            <label for="panorama-upload-input" class="cursor-pointer glass-button px-3 py-1.5 rounded-lg text-xs font-medium text-slate-200 flex items-center space-x-2 hover:text-white">
+                <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                <span class="hidden sm:inline">Upload 360° Photo</span>
+            </label>
+            <input type="file" id="panorama-upload-input" accept="image/*" class="hidden" />
+
+            <!-- Reset Camera -->
+            <button id="btn-reset-view" class="glass-button p-2 rounded-lg text-slate-300 hover:text-white" title="Reset View">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            </button>
+
+            <!-- Toggle Fullscreen -->
+            <button id="btn-fullscreen" class="glass-button p-2 rounded-lg text-slate-300 hover:text-white" title="Toggle Fullscreen">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0-4l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+            </button>
+
+            <!-- Sidebar Toggle (Mobile) -->
+            <button id="btn-toggle-sidebar" class="md:hidden glass-button p-2 rounded-lg text-slate-300 hover:text-white">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- 360 Viewer Canvas Container -->
+        <main class="flex-1 relative bg-slate-950 flex items-center justify-center overflow-hidden" id="main-viewport">
+            <!-- Three.js Canvas Container -->
+            <div id="viewer-container" class="w-full h-full"></div>
+
+            <!-- On-Screen Controls Overlay (Floating) -->
+            <div class="absolute bottom-6 left-1/2 -translate-x-1/2 glass-panel rounded-2xl p-2 px-4 flex items-center space-x-3 shadow-2xl z-20 border border-slate-700/50">
+                <!-- Zoom Out -->
+                <button id="btn-zoom-out" class="p-2 hover:bg-slate-800/80 rounded-xl transition text-slate-300 hover:text-white" title="Zoom Out (-)">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" />
+                    </svg>
+                </button>
+
+                <!-- Zoom Slider -->
+                <div class="flex items-center space-x-2 w-28 sm:w-36">
+                    <input type="range" id="slider-fov" min="20" max="110" value="75" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                </div>
+
+                <!-- Zoom In -->
+                <button id="btn-zoom-in" class="p-2 hover:bg-slate-800/80 rounded-xl transition text-slate-300 hover:text-white" title="Zoom In (+)">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7" />
+                    </svg>
+                </button>
+
+                <div class="w-px h-6 bg-slate-800"></div>
+
+                <!-- Auto Rotate Toggle -->
+                <button id="btn-autorotate" class="p-2 hover:bg-slate-800/80 rounded-xl transition text-slate-300 hover:text-white flex items-center space-x-1" title="Toggle Auto-Rotation">
+                    <svg id="icon-autorotate" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                </button>
+
+                <!-- Dual Eye VR Mode Toggle -->
+                <button id="btn-vr-mode" class="p-2 hover:bg-slate-800/80 rounded-xl transition text-slate-300 hover:text-white flex items-center space-x-1" title="Toggle VR Stereoscopic Mode">
+                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+                    </svg>
+                </button>
+
+                <!-- Add Hotspot Toggle Mode -->
+                <button id="btn-add-hotspot" class="p-2 hover:bg-slate-800/80 rounded-xl transition text-slate-300 hover:text-white" title="Add Hotspot Tag">
+                    <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                </button>
+
+                <!-- Capture Snapshot -->
+                <button id="btn-screenshot" class="p-2 hover:bg-slate-800/80 rounded-xl transition text-slate-300 hover:text-white" title="Take Snapshot">
+                    <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Active View Indicators & Telemetry -->
+            <div class="absolute top-4 left-4 glass-panel p-3 rounded-xl text-xs space-y-1.5 z-10 pointer-events-none hidden sm:block border border-slate-800">
+                <div class="flex items-center justify-between gap-4 text-slate-400">
+                    <span>Field of View:</span>
+                    <span id="telemetry-fov" class="font-mono text-blue-400 font-semibold">75°</span>
+                </div>
+                <div class="flex items-center justify-between gap-4 text-slate-400">
+                    <span>Yaw / Pitch:</span>
+                    <span id="telemetry-coords" class="font-mono text-slate-200">0.0° / 0.0°</span>
+                </div>
+                <div class="flex items-center justify-between gap-4 text-slate-400">
+                    <span>Projection:</span>
+                    <span id="telemetry-projection" class="text-emerald-400 font-medium">Equirectangular</span>
+                </div>
+            </div>
+
+            <!-- Hotspot Placement Banner Alert -->
+            <div id="hotspot-banner" class="absolute top-4 left-1/2 -translate-x-1/2 glass-panel border border-emerald-500/40 px-4 py-2 rounded-xl text-xs text-emerald-300 flex items-center space-x-2 z-20 hidden">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>Click anywhere on the panorama to drop a marker point</span>
+                <button id="btn-cancel-hotspot" class="ml-2 text-slate-400 hover:text-white underline">Cancel</button>
+            </div>
+
+            <!-- Loading Spinner Overlay -->
+            <div id="loading-overlay" class="absolute inset-0 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center z-40 transition-opacity duration-300">
+                <div class="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-4"></div>
+                <p id="loading-text" class="text-sm font-medium text-slate-300">Loading 360° Panorama...</p>
+            </div>
+
+            <!-- Drag & Drop Zone Overlay -->
+            <div id="drop-zone" class="absolute inset-0 bg-blue-600/20 backdrop-blur-sm border-4 border-dashed border-blue-400/80 flex flex-col items-center justify-center z-50 opacity-0 pointer-events-none transition-opacity duration-200">
+                <svg class="w-16 h-16 text-blue-300 mb-2 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <p class="text-lg font-bold text-white">Drop Equirectangular Panorama File Here</p>
+                <p class="text-xs text-blue-200 mt-1">Supports standard JPEG, PNG, or WebP 360 images</p>
+            </div>
+        </main>
+
+        <!-- Right Sidebar Controls Dashboard -->
+        <aside id="sidebar" class="w-80 bg-slate-900 border-l border-slate-800 flex flex-col z-20 shrink-0 transition-all duration-300 absolute md:static right-0 top-0 bottom-0 translate-x-full md:translate-x-0">
+            <!-- Sidebar Header -->
+            <div class="p-4 border-b border-slate-800 flex items-center justify-between">
+                <h2 class="font-bold text-sm text-slate-200 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+                    </svg>
+                    Viewer Studio Settings
+                </h2>
+                <button id="btn-close-sidebar" class="md:hidden text-slate-400 hover:text-white">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Scrollable Settings Body -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-6">
+
+                <!-- Preset Gallery Section -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                        Preset 360° Panorama
+                    </label>
+                    <div class="grid grid-cols-1 gap-2" id="preset-container">
+                        <!-- Preset template injected dynamically -->
+                    </div>
+                </div>
+
+                <!-- Custom Upload Section -->
+                <div class="p-3 bg-slate-800/40 rounded-xl border border-slate-800">
+                    <label class="block text-xs font-semibold text-slate-300 mb-1">Upload Local 360° Photo</label>
+                    <p class="text-[11px] text-slate-400 mb-2">Upload any equirectangular 2:1 aspect ratio image.</p>
+                    <button onclick="document.getElementById('panorama-upload-input').click()" class="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-semibold shadow-md transition flex items-center justify-center space-x-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span>Choose File</span>
+                    </button>
+                </div>
+
+                <!-- Camera & Motion Controls -->
+                <div class="space-y-4">
+                    <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                        Motion & Optics
+                    </label>
+
+                    <!-- Field of View / Zoom Slider -->
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300">Field of View (Zoom)</span>
+                            <span id="val-fov" class="text-blue-400 font-mono">75°</span>
+                        </div>
+                        <input type="range" id="setting-fov" min="30" max="120" value="75" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                    </div>
+
+                    <!-- Auto-Rotation Speed -->
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300">Auto-Rotation Speed</span>
+                            <span id="val-autorotate-speed" class="text-blue-400 font-mono">0.5x</span>
+                        </div>
+                        <input type="range" id="setting-rotate-speed" min="0" max="2" step="0.1" value="0.5" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                    </div>
+
+                    <!-- Drag Sensitivity -->
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300">Pan Sensitivity</span>
+                            <span id="val-sensitivity" class="text-blue-400 font-mono">1.0</span>
+                        </div>
+                        <input type="range" id="setting-sensitivity" min="0.2" max="2.5" step="0.1" value="1.0" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                    </div>
+                </div>
+
+                <!-- Color Filters & Shading -->
+                <div class="space-y-4">
+                    <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                        Visual Adjustments
+                    </label>
+
+                    <!-- Brightness -->
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300">Brightness</span>
+                            <span id="val-brightness" class="text-blue-400 font-mono">100%</span>
+                        </div>
+                        <input type="range" id="setting-brightness" min="50" max="150" value="100" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                    </div>
+
+                    <!-- Contrast -->
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300">Contrast</span>
+                            <span id="val-contrast" class="text-blue-400 font-mono">100%</span>
+                        </div>
+                        <input type="range" id="setting-contrast" min="50" max="150" value="100" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500" />
+                    </div>
+
+                    <!-- Projection Mode Select -->
+                    <div>
+                        <label class="block text-xs text-slate-300 mb-1">Camera Projection Style</label>
+                        <select id="setting-projection" class="w-full bg-slate-800 border border-slate-700 text-xs text-slate-200 rounded-lg p-2 focus:ring-1 focus:ring-blue-500 outline-none">
+                            <option value="normal">Standard Panorama VR</option>
+                            <option value="little-planet">Little Planet (Fisheye 140°)</option>
+                            <option value="telephoto">Narrow Telephoto (40°)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Hotspots List Section -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                            Interactive Hotspots
+                        </label>
+                        <span id="hotspot-count" class="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-300 font-mono">0 Markers</span>
+                    </div>
+                    <div id="hotspots-list" class="space-y-2 max-h-40 overflow-y-auto pr-1 text-xs">
+                        <p class="text-slate-500 text-xs italic">No hotspots placed yet. Click the marker icon below canvas to add points of interest.</p>
+                    </div>
+                </div>
+
+                <!-- Audio Atmosphere Generator -->
+                <div class="p-3 bg-indigo-950/30 rounded-xl border border-indigo-900/40">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-medium text-indigo-200 flex items-center gap-1.5">
+                            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 .895-2 3-2 3 .895 3 2zm12 0c0 1.105-1.343 2-3 2s-3-.895-3-2 .895-2 3-2 3 .895 3 2zM9 10l12-3" />
+                            </svg>
+                            Ambient Synthesizer
+                        </span>
+                        <button id="btn-toggle-audio" class="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold rounded-md transition">
+                            Play Sound
+                        </button>
+                    </div>
+                    <p class="text-[11px] text-slate-400">Generates real-time ambient atmospheric drone tones using Web Audio API.</p>
+                </div>
+
+            </div>
+        </aside>
+    </div>
+
+    <!-- Hotspot Modal Form -->
+    <div id="hotspot-modal" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center hidden p-4">
+        <div class="glass-panel w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl">
+            <h3 class="text-base font-bold text-white mb-1">Create Point of Interest Marker</h3>
+            <p class="text-xs text-slate-400 mb-4">Add a spatial annotation tag at this coordinate in the 360 space.</p>
+            
+            <div class="space-y-4 text-xs">
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Marker Title</label>
+                    <input type="text" id="hotspot-input-title" placeholder="e.g. Scenic Mountain Viewpoint" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 outline-none" />
+                </div>
+                <div>
+                    <label class="block text-slate-300 font-medium mb-1">Description / Details</label>
+                    <textarea id="hotspot-input-desc" rows="3" placeholder="Enter landmark notes or extra details..." class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:border-blue-500 outline-none"></textarea>
+                </div>
+            </div>
+
+            <div class="flex items-center justify-end space-x-2 mt-6">
+                <button id="btn-hotspot-cancel" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium transition">Cancel</button>
+                <button id="btn-hotspot-save" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold transition">Save Marker</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Core State
+        const state = {
+            fov: 75,
+            lon: 0,
+            lat: 0,
+            phi: 0,
+            theta: 0,
+            isUserInteracting: false,
+            onMouseDownLon: 0,
+            onMouseDownLat: 0,
+            onMouseDownPointerX: 0,
+            onMouseDownPointerY: 0,
+            autoRotate: false,
+            autoRotateSpeed: 0.5,
+            sensitivity: 1.0,
+            vrMode: false,
+            addingHotspotMode: false,
+            brightness: 100,
+            contrast: 100,
+            hotspots: [],
+            activeAudio: false,
+            pendingHotspotCoords: null
+        };
+
+        // DOM Element Cache
+        const container = document.getElementById('viewer-container');
+        const loadingOverlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+        const sliderFov = document.getElementById('slider-fov');
+        const settingFov = document.getElementById('setting-fov');
+        const valFov = document.getElementById('val-fov');
+        const telemetryFov = document.getElementById('telemetry-fov');
+        const telemetryCoords = document.getElementById('telemetry-coords');
+        const telemetryProjection = document.getElementById('telemetry-projection');
+        const btnAutoRotate = document.getElementById('btn-autorotate');
+        const settingRotateSpeed = document.getElementById('setting-rotate-speed');
+        const valRotateSpeed = document.getElementById('val-autorotate-speed');
+        const settingSensitivity = document.getElementById('setting-sensitivity');
+        const valSensitivity = document.getElementById('val-sensitivity');
+        const settingBrightness = document.getElementById('setting-brightness');
+        const valBrightness = document.getElementById('val-brightness');
+        const settingContrast = document.getElementById('setting-contrast');
+        const valContrast = document.getElementById('val-contrast');
+        const settingProjection = document.getElementById('setting-projection');
+
+        // Three.js Core Variables
+        let camera, scene, renderer, sphereMesh, sphereMaterial, textureLoader;
+        let raycaster, mouseVector;
+
+        // Audio Synth Variables
+        let audioCtx, osc1, osc2, gainNode;
+
+        // Single Preset Definition
+        const presets = [
+            { 
+                id: 'custom_v01', 
+                title: '360° Panorama View', 
+                desc: '360.webp', 
+                path: '360.webp', 
+                color: 'from-blue-600 to-indigo-800' 
+            }
+        ];
+
+        // Procedural Fallback Panorama Generator (used if path cannot be loaded yet)
+        function generateProceduralFallback() {
+            const width = 2048;
+            const height = 1024;
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+
+            const gradient = ctx.createLinearGradient(0, 0, 0, height);
+            gradient.addColorStop(0, '#0f172a');
+            gradient.addColorStop(0.3, '#1e1b4b');
+            gradient.addColorStop(0.5, '#312e81');
+            gradient.addColorStop(0.7, '#1e293b');
+            gradient.addColorStop(1, '#020617');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, width, height);
+
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = 'bold 36px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('360.webp', width / 2, height / 2 - 20);
+
+            ctx.font = '22px sans-serif';
+            ctx.fillStyle = '#64748b';
+            ctx.fillText('File pending / link image path when ready', width / 2, height / 2 + 30);
+
+            return canvas.toDataURL('image/jpeg', 0.9);
+        }
+
+        function initViewer() {
+            // Scene & Camera
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(state.fov, container.clientWidth / container.clientHeight, 1, 1100);
+            camera.target = new THREE.Vector3(0, 0, 0);
+
+            // Raycaster for hotspots
+            raycaster = new THREE.Raycaster();
+            mouseVector = new THREE.Vector2();
+
+            // Sphere Geometry (Inverted so texture renders inside)
+            const geometry = new THREE.SphereGeometry(500, 60, 40);
+            geometry.scale(-1, 1, 1);
+
+            // Sphere Material
+            sphereMaterial = new THREE.MeshBasicMaterial();
+            sphereMesh = new THREE.Mesh(geometry, sphereMaterial);
+            scene.add(sphereMesh);
+
+            // WebGL Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            // Texture Loader
+            textureLoader = new THREE.TextureLoader();
+
+            // Load Default Preset
+            loadPreset('custom_v01');
+
+            // Event Listeners
+            setupEventListeners();
+
+            // Animation Loop
+            animate();
+        }
+
+        function loadTextureFromUrl(url) {
+            loadingOverlay.classList.remove('opacity-0', 'pointer-events-none');
+            loadingOverlay.style.display = 'flex';
+            loadingText.innerText = `Loading ${url}...`;
+
+            textureLoader.load(
+                url,
+                function (texture) {
+                    texture.minFilter = THREE.LinearFilter;
+                    texture.magFilter = THREE.LinearFilter;
+                    sphereMaterial.map = texture;
+                    sphereMaterial.needsUpdate = true;
+
+                    setTimeout(() => {
+                        loadingOverlay.style.display = 'none';
+                    }, 250);
+                },
+                undefined,
+                function (err) {
+                    console.warn(`Texture at ${url} not found, displaying fallback placeholder screen.`, err);
+                    
+                    // Fallback placeholder display if file is missing
+                    const fallbackUrl = generateProceduralFallback();
+                    textureLoader.load(fallbackUrl, function (fallbackTexture) {
+                        sphereMaterial.map = fallbackTexture;
+                        sphereMaterial.needsUpdate = true;
+                        loadingOverlay.style.display = 'none';
+                    });
+                }
+            );
+        }
+
+        function loadPreset(presetId) {
+            const preset = presets.find(p => p.id === presetId) || presets[0];
+            loadTextureFromUrl(preset.path);
+        }
+
+        function setupEventListeners() {
+            const dom = renderer.domElement;
+
+            // Mouse / Touch Drag Control
+            dom.addEventListener('pointerdown', onPointerDown);
+            dom.addEventListener('pointermove', onPointerMove);
+            dom.addEventListener('pointerup', onPointerUp);
+            dom.addEventListener('wheel', onDocumentMouseWheel, { passive: false });
+
+            // Window Resize
+            window.addEventListener('resize', onWindowResize);
+
+            // Drag & Drop Upload
+            const dropZone = document.getElementById('drop-zone');
+            window.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('opacity-0', 'pointer-events-none');
+            });
+            dropZone.addEventListener('dragleave', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('opacity-0', 'pointer-events-none');
+            });
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('opacity-0', 'pointer-events-none');
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    handleFileUpload(e.dataTransfer.files[0]);
+                }
+            });
+
+            // File Input Change
+            document.getElementById('panorama-upload-input').addEventListener('change', (e) => {
+                if (e.target.files && e.target.files[0]) {
+                    handleFileUpload(e.target.files[0]);
+                }
+            });
+
+            // On-Screen Control Buttons
+            document.getElementById('btn-zoom-in').addEventListener('click', () => adjustFov(-5));
+            document.getElementById('btn-zoom-out').addEventListener('click', () => adjustFov(5));
+            sliderFov.addEventListener('input', (e) => updateFov(parseFloat(e.target.value)));
+            settingFov.addEventListener('input', (e) => updateFov(parseFloat(e.target.value)));
+
+            btnAutoRotate.addEventListener('click', toggleAutoRotate);
+            document.getElementById('btn-vr-mode').addEventListener('click', toggleVRMode);
+            document.getElementById('btn-reset-view').addEventListener('click', resetView);
+            document.getElementById('btn-fullscreen').addEventListener('click', toggleFullscreen);
+            document.getElementById('btn-screenshot').addEventListener('click', captureScreenshot);
+            document.getElementById('btn-add-hotspot').addEventListener('click', enableHotspotMode);
+            document.getElementById('btn-cancel-hotspot').addEventListener('click', disableHotspotMode);
+
+            // Settings Controls
+            settingRotateSpeed.addEventListener('input', (e) => {
+                state.autoRotateSpeed = parseFloat(e.target.value);
+                valRotateSpeed.innerText = `${state.autoRotateSpeed}x`;
+            });
+
+            settingSensitivity.addEventListener('input', (e) => {
+                state.sensitivity = parseFloat(e.target.value);
+                valSensitivity.innerText = state.sensitivity.toFixed(1);
+            });
+
+            settingBrightness.addEventListener('input', (e) => {
+                state.brightness = parseInt(e.target.value);
+                valBrightness.innerText = `${state.brightness}%`;
+                applyCanvasFilters();
+            });
+
+            settingContrast.addEventListener('input', (e) => {
+                state.contrast = parseInt(e.target.value);
+                valContrast.innerText = `${state.contrast}%`;
+                applyCanvasFilters();
+            });
+
+            settingProjection.addEventListener('change', (e) => {
+                const val = e.target.value;
+                if (val === 'little-planet') {
+                    updateFov(135);
+                    telemetryProjection.innerText = 'Little Planet (135°)';
+                } else if (val === 'telephoto') {
+                    updateFov(40);
+                    telemetryProjection.innerText = 'Telephoto (40°)';
+                } else {
+                    updateFov(75);
+                    telemetryProjection.innerText = 'Equirectangular';
+                }
+            });
+
+            // Sidebar Toggles
+            document.getElementById('btn-toggle-sidebar').addEventListener('click', () => {
+                document.getElementById('sidebar').classList.toggle('translate-x-full');
+            });
+            document.getElementById('btn-close-sidebar').addEventListener('click', () => {
+                document.getElementById('sidebar').classList.add('translate-x-full');
+            });
+
+            // Audio Synth Toggle
+            document.getElementById('btn-toggle-audio').addEventListener('click', toggleAudioAmbiance);
+
+            // Hotspot Modal Buttons
+            document.getElementById('btn-hotspot-cancel').addEventListener('click', () => {
+                document.getElementById('hotspot-modal').classList.add('hidden');
+                disableHotspotMode();
+            });
+            document.getElementById('btn-hotspot-save').addEventListener('click', saveHotspotFromModal);
+        }
+
+        function onPointerDown(event) {
+            if (state.addingHotspotMode) {
+                placeHotspotAtClick(event);
+                return;
+            }
+
+            state.isUserInteracting = true;
+            state.onMouseDownPointerX = event.clientX;
+            state.onMouseDownPointerY = event.clientY;
+            state.onMouseDownLon = state.lon;
+            state.onMouseDownLat = state.lat;
+        }
+
+        function onPointerMove(event) {
+            if (!state.isUserInteracting) return;
+
+            const factor = (state.fov / 75) * 0.15 * state.sensitivity;
+            state.lon = (state.onMouseDownPointerX - event.clientX) * factor + state.onMouseDownLon;
+            state.lat = (event.clientY - state.onMouseDownPointerY) * factor + state.onMouseDownLat;
+        }
+
+        function onPointerUp() {
+            state.isUserInteracting = false;
+        }
+
+        function onDocumentMouseWheel(event) {
+            event.preventDefault();
+            adjustFov(event.deltaY * 0.05);
+        }
+
+        function adjustFov(delta) {
+            updateFov(state.fov + delta);
+        }
+
+        function updateFov(newFov) {
+            state.fov = Math.max(20, Math.min(120, newFov));
+            camera.fov = state.fov;
+            camera.updateProjectionMatrix();
+
+            sliderFov.value = state.fov;
+            settingFov.value = state.fov;
+            valFov.innerText = `${Math.round(state.fov)}°`;
+            telemetryFov.innerText = `${Math.round(state.fov)}°`;
+        }
+
+        function resetView() {
+            state.lon = 0;
+            state.lat = 0;
+            updateFov(75);
+        }
+
+        function toggleAutoRotate() {
+            state.autoRotate = !state.autoRotate;
+            btnAutoRotate.classList.toggle('text-blue-400', state.autoRotate);
+            btnAutoRotate.classList.toggle('bg-blue-500/20', state.autoRotate);
+        }
+
+        function toggleVRMode() {
+            state.vrMode = !state.vrMode;
+            const btnVR = document.getElementById('btn-vr-mode');
+            btnVR.classList.toggle('bg-indigo-500/30', state.vrMode);
+            btnVR.classList.toggle('border', state.vrMode);
+            btnVR.classList.toggle('border-indigo-400', state.vrMode);
+            onWindowResize();
+        }
+
+        function applyCanvasFilters() {
+            renderer.domElement.style.filter = `brightness(${state.brightness}%) contrast(${state.contrast}%)`;
+        }
+
+        function toggleFullscreen() {
+            const elem = document.documentElement;
+            if (!document.fullscreenElement) {
+                elem.requestFullscreen().catch((err) => {
+                    console.log(`Error attempting fullscreen: ${err.message}`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function handleFileUpload(file) {
+            if (!file.type.match('image.*')) {
+                alert('Please upload a valid image file (JPEG, PNG, WebP).');
+                return;
+            }
+
+            const reader = new FileReader();
+            loadingOverlay.style.display = 'flex';
+            loadingText.innerText = 'Reading image file...';
+
+            reader.onload = function (e) {
+                loadTextureFromUrl(e.target.result);
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function enableHotspotMode() {
+            state.addingHotspotMode = true;
+            document.getElementById('hotspot-banner').classList.remove('hidden');
+            renderer.domElement.style.cursor = 'crosshair';
+        }
+
+        function disableHotspotMode() {
+            state.addingHotspotMode = false;
+            document.getElementById('hotspot-banner').classList.add('hidden');
+            renderer.domElement.style.cursor = 'grab';
+        }
+
+        function placeHotspotAtClick(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouseVector.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouseVector.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouseVector, camera);
+            const intersects = raycaster.intersectObject(sphereMesh);
+
+            if (intersects.length > 0) {
+                const point = intersects[0].point;
+                state.pendingHotspotCoords = point.clone();
+
+                document.getElementById('hotspot-modal').classList.remove('hidden');
+            }
+        }
+
+        function saveHotspotFromModal() {
+            const title = document.getElementById('hotspot-input-title').value.trim() || 'Point of Interest';
+            const desc = document.getElementById('hotspot-input-desc').value.trim() || 'Custom annotation';
+
+            if (state.pendingHotspotCoords) {
+                const spriteMap = createHotspotTexture(title);
+                const spriteMaterial = new THREE.SpriteMaterial({ map: spriteMap, depthTest: false });
+                const sprite = new THREE.Sprite(spriteMaterial);
+
+                sprite.position.copy(state.pendingHotspotCoords).multiplyScalar(0.95);
+                sprite.scale.set(60, 30, 1);
+                scene.add(sprite);
+
+                const newHotspot = {
+                    id: Date.now(),
+                    title,
+                    desc,
+                    sprite,
+                    position: state.pendingHotspotCoords.clone()
+                };
+
+                state.hotspots.push(newHotspot);
+                renderHotspotsList();
+            }
+
+            document.getElementById('hotspot-input-title').value = '';
+            document.getElementById('hotspot-input-desc').value = '';
+            document.getElementById('hotspot-modal').classList.add('hidden');
+            disableHotspotMode();
+        }
+
+        function createHotspotTexture(text) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            if (ctx.roundRect) {
+                ctx.roundRect(10, 10, 236, 108, 16);
+            } else {
+                ctx.rect(10, 10, 236, 108);
+            }
+            ctx.fill();
+            ctx.stroke();
+
+            ctx.fillStyle = '#ffffff';
+            ctx.font = 'bold 20px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(text.length > 15 ? text.substring(0, 13) + '..' : text, 128, 64);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function renderHotspotsList() {
+            const container = document.getElementById('hotspots-list');
+            const countTag = document.getElementById('hotspot-count');
+            countTag.innerText = `${state.hotspots.length} Markers`;
+
+            if (state.hotspots.length === 0) {
+                container.innerHTML = `<p class="text-slate-500 text-xs italic">No hotspots placed yet.</p>`;
+                return;
+            }
+
+            container.innerHTML = state.hotspots.map(h => `
+                <div class="p-2.5 bg-slate-800/80 rounded-lg border border-slate-700/60 flex items-start justify-between">
+                    <div>
+                        <div class="font-semibold text-slate-200 text-xs">${h.title}</div>
+                        <div class="text-[11px] text-slate-400 mt-0.5">${h.desc}</div>
+                    </div>
+                    <button onclick="deleteHotspot(${h.id})" class="text-slate-500 hover:text-rose-400 p-1">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        window.deleteHotspot = function (id) {
+            const index = state.hotspots.findIndex(h => h.id === id);
+            if (index !== -1) {
+                scene.remove(state.hotspots[index].sprite);
+                state.hotspots.splice(index, 1);
+                renderHotspotsList();
+            }
+        };
+
+        function captureScreenshot() {
+            renderer.render(scene, camera);
+            const dataUrl = renderer.domElement.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.download = `360-panorama-snapshot-${Date.now()}.png`;
+            link.href = dataUrl;
+            link.click();
+        }
+
+        function toggleAudioAmbiance() {
+            const btn = document.getElementById('btn-toggle-audio');
+
+            if (state.activeAudio) {
+                if (audioCtx) audioCtx.suspend();
+                state.activeAudio = false;
+                btn.innerText = 'Play Sound';
+                btn.classList.remove('bg-rose-600', 'hover:bg-rose-500');
+                btn.classList.add('bg-indigo-600', 'hover:bg-indigo-500');
+            } else {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    osc1 = audioCtx.createOscillator();
+                    osc2 = audioCtx.createOscillator();
+                    gainNode = audioCtx.createGain();
+
+                    osc1.type = 'sine';
+                    osc1.frequency.setValueAtTime(110, audioCtx.currentTime);
+
+                    osc2.type = 'triangle';
+                    osc2.frequency.setValueAtTime(164.81, audioCtx.currentTime);
+
+                    gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
+
+                    osc1.connect(gainNode);
+                    osc2.connect(gainNode);
+                    gainNode.connect(audioCtx.destination);
+
+                    osc1.start();
+                    osc2.start();
+                } else {
+                    audioCtx.resume();
+                }
+                state.activeAudio = true;
+                btn.innerText = 'Mute Sound';
+                btn.classList.remove('bg-indigo-600', 'hover:bg-indigo-500');
+                btn.classList.add('bg-rose-600', 'hover:bg-rose-500');
+            }
+        }
+
+        function onWindowResize() {
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            update();
+        }
+
+        function update() {
+            if (state.autoRotate && !state.isUserInteracting) {
+                state.lon += 0.1 * state.autoRotateSpeed;
+            }
+
+            state.lat = Math.max(-85, Math.min(85, state.lat));
+
+            state.phi = THREE.MathUtils.degToRad(90 - state.lat);
+            state.theta = THREE.MathUtils.degToRad(state.lon);
+
+            camera.target.x = 500 * Math.sin(state.phi) * Math.cos(state.theta);
+            camera.target.y = 500 * Math.cos(state.phi);
+            camera.target.z = 500 * Math.sin(state.phi) * Math.sin(state.theta);
+
+            camera.lookAt(camera.target);
+
+            telemetryCoords.innerText = `${state.lon.toFixed(1)}° / ${state.lat.toFixed(1)}°`;
+
+            if (state.vrMode) {
+                const width = container.clientWidth;
+                const height = container.clientHeight;
+
+                renderer.setViewport(0, 0, width / 2, height);
+                renderer.setScissor(0, 0, width / 2, height);
+                renderer.setScissorTest(true);
+                renderer.render(scene, camera);
+
+                renderer.setViewport(width / 2, 0, width / 2, height);
+                renderer.setScissor(width / 2, 0, width / 2, height);
+                renderer.setScissorTest(true);
+                renderer.render(scene, camera);
+
+                renderer.setScissorTest(false);
+            } else {
+                renderer.setViewport(0, 0, container.clientWidth, container.clientHeight);
+                renderer.render(scene, camera);
+            }
+        }
+
+        function buildPresetsUI() {
+            const presetContainer = document.getElementById('preset-container');
+            presetContainer.innerHTML = presets.map(p => `
+                <button onclick="loadPreset('${p.id}')" class="group relative overflow-hidden rounded-xl border border-slate-700/60 p-3 text-left transition hover:border-blue-500 bg-gradient-to-br ${p.color}">
+                    <div class="relative z-10">
+                        <p class="text-xs font-bold text-white group-hover:text-blue-200 transition">${p.title}</p>
+                        <p class="text-[10px] font-mono text-slate-200/80 mt-0.5 break-all">${p.desc}</p>
+                    </div>
+                </button>
+            `).join('');
+        }
+
+        // Initialize on DOM ready
+        window.onload = function () {
+            buildPresetsUI();
+            initViewer();
+        };
+    </script>
+</body>
+</html>
