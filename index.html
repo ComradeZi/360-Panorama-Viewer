@@ -427,10 +427,12 @@
             sensitivity: 1.0,
             vrMode: false,
             gyroMode: false,
-            gyroInitialized: false,
             gyroAlpha: 0,
             gyroBeta: 0,
             gyroGamma: 0,
+            touchOffsetLon: 0,
+            onMouseDownTouchOffsetLon: 0,
+            gyroFirstFrame: false,
             addingHotspotMode: false,
             brightness: 100,
             contrast: 100,
@@ -735,14 +737,19 @@
             state.onMouseDownPointerY = event.clientY;
             state.onMouseDownLon = state.lon;
             state.onMouseDownLat = state.lat;
+            state.onMouseDownTouchOffsetLon = state.touchOffsetLon;
         }
 
         function onPointerMove(event) {
             if (!state.isUserInteracting) return;
 
             const factor = (state.fov / 75) * 0.15 * state.sensitivity;
-            state.lon = (state.onMouseDownPointerX - event.clientX) * factor + state.onMouseDownLon;
-            state.lat = (event.clientY - state.onMouseDownPointerY) * factor + state.onMouseDownLat;
+            if (state.gyroMode) {
+                state.touchOffsetLon = state.onMouseDownTouchOffsetLon + (state.onMouseDownPointerX - event.clientX) * factor;
+            } else {
+                state.lon = (state.onMouseDownPointerX - event.clientX) * factor + state.onMouseDownLon;
+                state.lat = (event.clientY - state.onMouseDownPointerY) * factor + state.onMouseDownLat;
+            }
         }
 
         function onPointerUp() {
@@ -766,6 +773,7 @@
                 state.onMouseDownPointerY = event.touches[0].clientY;
                 state.onMouseDownLon = state.lon;
                 state.onMouseDownLat = state.lat;
+                state.onMouseDownTouchOffsetLon = state.touchOffsetLon;
             } else if (event.touches.length === 2) {
                 state.isUserInteracting = false;
                 const dx = event.touches[0].clientX - event.touches[1].clientX;
@@ -780,8 +788,12 @@
 
             if (event.touches.length === 1 && state.isUserInteracting) {
                 const factor = (state.fov / 75) * 0.15 * state.sensitivity;
-                state.lon = (state.onMouseDownPointerX - event.touches[0].clientX) * factor + state.onMouseDownLon;
-                state.lat = (event.touches[0].clientY - state.onMouseDownPointerY) * factor + state.onMouseDownLat;
+                if (state.gyroMode) {
+                    state.touchOffsetLon = state.onMouseDownTouchOffsetLon + (state.onMouseDownPointerX - event.touches[0].clientX) * factor;
+                } else {
+                    state.lon = (state.onMouseDownPointerX - event.touches[0].clientX) * factor + state.onMouseDownLon;
+                    state.lat = (event.touches[0].clientY - state.onMouseDownPointerY) * factor + state.onMouseDownLat;
+                }
             } else if (event.touches.length === 2 && touchStartDist > 0) {
                 const dx = event.touches[0].clientX - event.touches[1].clientX;
                 const dy = event.touches[0].clientY - event.touches[1].clientY;
@@ -845,20 +857,18 @@
         const gyroEuler = new THREE.Euler();
         const gyroQ0 = new THREE.Quaternion();
         const gyroQ1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
-        const gyroStartQuat = new THREE.Quaternion();
+        const gyroQuat = new THREE.Quaternion();
 
-        function getGyroQuaternion(alpha, beta, gamma, orient) {
-            const q = new THREE.Quaternion();
+        function setCameraQuaternionFromDeviceOrientation(quaternion, alpha, beta, gamma, orient) {
             gyroEuler.set(
                 THREE.MathUtils.degToRad(beta),
                 THREE.MathUtils.degToRad(alpha),
                 -THREE.MathUtils.degToRad(gamma),
                 'YXZ'
             );
-            q.setFromEuler(gyroEuler);
-            q.multiply(gyroQ1);
-            q.multiply(gyroQ0.setFromAxisAngle(zee, -THREE.MathUtils.degToRad(orient)));
-            return q;
+            quaternion.setFromEuler(gyroEuler);
+            quaternion.multiply(gyroQ1);
+            quaternion.multiply(gyroQ0.setFromAxisAngle(zee, -THREE.MathUtils.degToRad(orient)));
         }
 
         function toggleGyroMode() {
@@ -888,9 +898,9 @@
         }
 
         function enableGyro() {
-            state.gyroInitialized = false;
             window.addEventListener('deviceorientation', onDeviceOrientation, true);
             state.gyroMode = true;
+            state.gyroFirstFrame = true;
             const btnGyro = document.getElementById('btn-gyro-mode');
             btnGyro.classList.add('bg-cyan-500/30', 'border', 'border-cyan-400');
             showNotification('Gyroscope Navigation Enabled');
@@ -898,17 +908,16 @@
 
         function disableGyro() {
             window.removeEventListener('deviceorientation', onDeviceOrientation, true);
-            
-            // Seamless transition: recalculate continuous lon/lat from active camera direction
-            const dir = new THREE.Vector3();
-            camera.getWorldDirection(dir);
-            state.lat = THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, dir.y))));
-            state.lon = THREE.MathUtils.radToDeg(Math.atan2(dir.z, dir.x));
-
             state.gyroMode = false;
-            state.gyroInitialized = false;
             const btnGyro = document.getElementById('btn-gyro-mode');
             btnGyro.classList.remove('bg-cyan-500/30', 'border', 'border-cyan-400');
+            
+            // Sync current camera orientation back into lat / lon state
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            state.lat = THREE.MathUtils.radToDeg(Math.asin(dir.y));
+            state.lon = THREE.MathUtils.radToDeg(Math.atan2(dir.z, dir.x));
+
             showNotification('Gyroscope Disabled');
         }
 
@@ -917,13 +926,6 @@
                 state.gyroAlpha = event.alpha;
                 state.gyroBeta = event.beta;
                 state.gyroGamma = event.gamma;
-
-                // Lock initial device orientation reference frame on first valid reading
-                if (state.gyroMode && !state.gyroInitialized) {
-                    const orientation = window.orientation || (window.screen && window.screen.orientation ? window.screen.orientation.angle : 0);
-                    gyroStartQuat.copy(getGyroQuaternion(state.gyroAlpha, state.gyroBeta, state.gyroGamma, orientation));
-                    state.gyroInitialized = true;
-                }
             }
         }
 
@@ -1162,35 +1164,42 @@
         }
 
         function update() {
-            if (state.autoRotate && !state.isUserInteracting) {
-                state.lon += 0.1 * state.autoRotateSpeed;
-            }
-
-            state.lat = Math.max(-85, Math.min(85, state.lat));
-
-            if (state.gyroMode && state.gyroInitialized) {
+            if (state.gyroMode) {
                 const orientation = window.orientation || (window.screen && window.screen.orientation ? window.screen.orientation.angle : 0);
-                const currentGyroQuat = getGyroQuaternion(state.gyroAlpha, state.gyroBeta, state.gyroGamma, orientation);
-
-                // Compute relative rotation delta from gyro start position
-                const gyroDelta = currentGyroQuat.clone().multiply(gyroStartQuat.clone().invert());
-
-                // Derive panning quaternion from state.lon and state.lat (enabling touch drag on top of gyro)
-                state.phi = THREE.MathUtils.degToRad(90 - state.lat);
-                state.theta = THREE.MathUtils.degToRad(state.lon);
-
-                const panTarget = new THREE.Vector3(
-                    500 * Math.sin(state.phi) * Math.cos(state.theta),
-                    500 * Math.cos(state.phi),
-                    500 * Math.sin(state.phi) * Math.sin(state.theta)
+                
+                // Calculate device orientation quaternion with roll level preserved
+                setCameraQuaternionFromDeviceOrientation(
+                    gyroQuat,
+                    state.gyroAlpha,
+                    state.gyroBeta,
+                    state.gyroGamma,
+                    orientation
                 );
 
-                const panMat = new THREE.Matrix4().lookAt(camera.position, panTarget, camera.up);
-                const panQuat = new THREE.Quaternion().setFromRotationMatrix(panMat);
+                // On initial gyro frame, match touch offset to current heading so view doesn't jump
+                if (state.gyroFirstFrame) {
+                    const gyroDir = new THREE.Vector3(0, 0, -1).applyQuaternion(gyroQuat);
+                    const gyroYaw = THREE.MathUtils.radToDeg(Math.atan2(gyroDir.z, gyroDir.x));
+                    state.touchOffsetLon = state.lon - gyroYaw;
+                    state.gyroFirstFrame = false;
+                }
 
-                // Multiply touch-panning orientation with relative gyro device motion
-                camera.quaternion.copy(panQuat).multiply(gyroDelta);
+                // Apply single-finger horizontal touch panning around world Y axis (level horizon)
+                const yawQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), THREE.MathUtils.degToRad(state.touchOffsetLon));
+                camera.quaternion.copy(yawQuat).multiply(gyroQuat);
+
+                // Continuously update lat/lon from camera vector so disabling gyro transitions seamlessly
+                const dir = new THREE.Vector3();
+                camera.getWorldDirection(dir);
+                state.lat = THREE.MathUtils.radToDeg(Math.asin(dir.y));
+                state.lon = THREE.MathUtils.radToDeg(Math.atan2(dir.z, dir.x));
             } else {
+                if (state.autoRotate && !state.isUserInteracting) {
+                    state.lon += 0.1 * state.autoRotateSpeed;
+                }
+
+                state.lat = Math.max(-85, Math.min(85, state.lat));
+
                 state.phi = THREE.MathUtils.degToRad(90 - state.lat);
                 state.theta = THREE.MathUtils.degToRad(state.lon);
 
