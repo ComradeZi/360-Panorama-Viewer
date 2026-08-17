@@ -260,9 +260,9 @@
                 <!-- Preset Gallery Section -->
                 <div>
                     <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                        Preset 360° Panorama
+                        Preset 360° Panoramas
                     </label>
-                    <div class="grid grid-cols-1 gap-2" id="preset-container">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" id="preset-container">
                         <!-- Preset template injected dynamically -->
                     </div>
                 </div>
@@ -458,19 +458,47 @@
         // Audio Synth Variables
         let audioCtx, osc1, osc2, gainNode;
 
-        // Single Preset Definition
+        // Preset Definitions
         const presets = [
             { 
-                id: 'custom_v01', 
-                title: '360° Panorama View', 
-                desc: '360.webp', 
-                path: '360.webp', 
+                id: 'pano_1', 
+                title: 'Panorama 1', 
+                desc: 'img/360_1.webp', 
+                path: 'img/360_1.webp', 
                 color: 'from-blue-600 to-indigo-800' 
+            },
+            { 
+                id: 'pano_2', 
+                title: 'Panorama 2', 
+                desc: 'img/360_2.webp', 
+                path: 'img/360_2.webp', 
+                color: 'from-purple-600 to-indigo-800' 
+            },
+            { 
+                id: 'pano_3', 
+                title: 'Panorama 3', 
+                desc: 'img/360_3.webp', 
+                path: 'img/360_3.webp', 
+                color: 'from-emerald-600 to-teal-800' 
+            },
+            { 
+                id: 'pano_4', 
+                title: 'Panorama 4', 
+                desc: 'img/360_4.webp', 
+                path: 'img/360_4.webp', 
+                color: 'from-amber-600 to-orange-800' 
+            },
+            { 
+                id: 'pano_5', 
+                title: 'Panorama 5', 
+                desc: 'img/360_5.webp', 
+                path: 'img/360_5.webp', 
+                color: 'from-rose-600 to-red-800' 
             }
         ];
 
         // Procedural Fallback Panorama Generator (used if path cannot be loaded yet)
-        function generateProceduralFallback() {
+        function generateProceduralFallback(filename) {
             const width = 2048;
             const height = 1024;
             const canvas = document.createElement('canvas');
@@ -490,7 +518,7 @@
             ctx.fillStyle = '#94a3b8';
             ctx.font = 'bold 36px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('360.webp', width / 2, height / 2 - 20);
+            ctx.fillText(filename || '360° Panorama Image', width / 2, height / 2 - 20);
 
             ctx.font = '22px sans-serif';
             ctx.fillStyle = '#64748b';
@@ -527,8 +555,8 @@
             // Texture Loader
             textureLoader = new THREE.TextureLoader();
 
-            // Load Default Preset
-            loadPreset('custom_v01');
+            // Load Default Preset (Panorama 1)
+            loadPreset('pano_1');
 
             // Event Listeners
             setupEventListeners();
@@ -559,7 +587,7 @@
                     console.warn(`Texture at ${url} not found, displaying fallback placeholder screen.`, err);
                     
                     // Fallback placeholder display if file is missing
-                    const fallbackUrl = generateProceduralFallback();
+                    const fallbackUrl = generateProceduralFallback(url);
                     textureLoader.load(fallbackUrl, function (fallbackTexture) {
                         sphereMaterial.map = fallbackTexture;
                         sphereMaterial.needsUpdate = true;
