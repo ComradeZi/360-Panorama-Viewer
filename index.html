@@ -745,7 +745,7 @@
 
             const factor = (state.fov / 75) * 0.15 * state.sensitivity;
             if (state.gyroMode) {
-                state.touchOffsetLon = state.onMouseDownTouchOffsetLon + (state.onMouseDownPointerX - event.clientX) * factor;
+                state.touchOffsetLon = state.onMouseDownTouchOffsetLon + (event.clientX - state.onMouseDownPointerX) * factor;
             } else {
                 state.lon = (state.onMouseDownPointerX - event.clientX) * factor + state.onMouseDownLon;
                 state.lat = (event.clientY - state.onMouseDownPointerY) * factor + state.onMouseDownLat;
@@ -789,7 +789,7 @@
             if (event.touches.length === 1 && state.isUserInteracting) {
                 const factor = (state.fov / 75) * 0.15 * state.sensitivity;
                 if (state.gyroMode) {
-                    state.touchOffsetLon = state.onMouseDownTouchOffsetLon + (state.onMouseDownPointerX - event.touches[0].clientX) * factor;
+                    state.touchOffsetLon = state.onMouseDownTouchOffsetLon + (event.touches[0].clientX - state.onMouseDownPointerX) * factor;
                 } else {
                     state.lon = (state.onMouseDownPointerX - event.touches[0].clientX) * factor + state.onMouseDownLon;
                     state.lat = (event.touches[0].clientY - state.onMouseDownPointerY) * factor + state.onMouseDownLat;
