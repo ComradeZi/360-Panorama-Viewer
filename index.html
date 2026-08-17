@@ -427,6 +427,7 @@
             sensitivity: 1.0,
             vrMode: false,
             gyroMode: false,
+            gyroInitialized: false,
             gyroAlpha: 0,
             gyroBeta: 0,
             gyroGamma: 0,
@@ -844,17 +845,20 @@
         const gyroEuler = new THREE.Euler();
         const gyroQ0 = new THREE.Quaternion();
         const gyroQ1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+        const gyroStartQuat = new THREE.Quaternion();
 
-        function setCameraQuaternionFromDeviceOrientation(quaternion, alpha, beta, gamma, orient) {
+        function getGyroQuaternion(alpha, beta, gamma, orient) {
+            const q = new THREE.Quaternion();
             gyroEuler.set(
                 THREE.MathUtils.degToRad(beta),
                 THREE.MathUtils.degToRad(alpha),
                 -THREE.MathUtils.degToRad(gamma),
                 'YXZ'
             );
-            quaternion.setFromEuler(gyroEuler);
-            quaternion.multiply(gyroQ1);
-            quaternion.multiply(gyroQ0.setFromAxisAngle(zee, -THREE.MathUtils.degToRad(orient)));
+            q.setFromEuler(gyroEuler);
+            q.multiply(gyroQ1);
+            q.multiply(gyroQ0.setFromAxisAngle(zee, -THREE.MathUtils.degToRad(orient)));
+            return q;
         }
 
         function toggleGyroMode() {
@@ -880,6 +884,46 @@
                 }
             } else {
                 disableGyro();
+            }
+        }
+
+        function enableGyro() {
+            state.gyroInitialized = false;
+            window.addEventListener('deviceorientation', onDeviceOrientation, true);
+            state.gyroMode = true;
+            const btnGyro = document.getElementById('btn-gyro-mode');
+            btnGyro.classList.add('bg-cyan-500/30', 'border', 'border-cyan-400');
+            showNotification('Gyroscope Navigation Enabled');
+        }
+
+        function disableGyro() {
+            window.removeEventListener('deviceorientation', onDeviceOrientation, true);
+            
+            // Seamless transition: recalculate continuous lon/lat from active camera direction
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            state.lat = THREE.MathUtils.radToDeg(Math.asin(Math.max(-1, Math.min(1, dir.y))));
+            state.lon = THREE.MathUtils.radToDeg(Math.atan2(dir.z, dir.x));
+
+            state.gyroMode = false;
+            state.gyroInitialized = false;
+            const btnGyro = document.getElementById('btn-gyro-mode');
+            btnGyro.classList.remove('bg-cyan-500/30', 'border', 'border-cyan-400');
+            showNotification('Gyroscope Disabled');
+        }
+
+        function onDeviceOrientation(event) {
+            if (event.alpha !== null && event.beta !== null && event.gamma !== null) {
+                state.gyroAlpha = event.alpha;
+                state.gyroBeta = event.beta;
+                state.gyroGamma = event.gamma;
+
+                // Lock initial device orientation reference frame on first valid reading
+                if (state.gyroMode && !state.gyroInitialized) {
+                    const orientation = window.orientation || (window.screen && window.screen.orientation ? window.screen.orientation.angle : 0);
+                    gyroStartQuat.copy(getGyroQuaternion(state.gyroAlpha, state.gyroBeta, state.gyroGamma, orientation));
+                    state.gyroInitialized = true;
+                }
             }
         }
 
@@ -1142,28 +1186,35 @@
         }
 
         function update() {
-            if (state.gyroMode) {
+            if (state.autoRotate && !state.isUserInteracting) {
+                state.lon += 0.1 * state.autoRotateSpeed;
+            }
+
+            state.lat = Math.max(-85, Math.min(85, state.lat));
+
+            if (state.gyroMode && state.gyroInitialized) {
                 const orientation = window.orientation || (window.screen && window.screen.orientation ? window.screen.orientation.angle : 0);
-                setCameraQuaternionFromDeviceOrientation(
-                    camera.quaternion,
-                    state.gyroAlpha,
-                    state.gyroBeta,
-                    state.gyroGamma,
-                    orientation
+                const currentGyroQuat = getGyroQuaternion(state.gyroAlpha, state.gyroBeta, state.gyroGamma, orientation);
+
+                // Compute relative rotation delta from gyro start position
+                const gyroDelta = currentGyroQuat.clone().multiply(gyroStartQuat.clone().invert());
+
+                // Derive panning quaternion from state.lon and state.lat (enabling touch drag on top of gyro)
+                state.phi = THREE.MathUtils.degToRad(90 - state.lat);
+                state.theta = THREE.MathUtils.degToRad(state.lon);
+
+                const panTarget = new THREE.Vector3(
+                    500 * Math.sin(state.phi) * Math.cos(state.theta),
+                    500 * Math.cos(state.phi),
+                    500 * Math.sin(state.phi) * Math.sin(state.theta)
                 );
 
-                // Sync spherical direction vector back to state.lat/lon for smooth manual transition
-                const dir = new THREE.Vector3();
-                camera.getWorldDirection(dir);
-                state.lat = THREE.MathUtils.radToDeg(Math.asin(dir.y));
-                state.lon = THREE.MathUtils.radToDeg(Math.atan2(dir.z, dir.x));
+                const panMat = new THREE.Matrix4().lookAt(camera.position, panTarget, camera.up);
+                const panQuat = new THREE.Quaternion().setFromRotationMatrix(panMat);
+
+                // Multiply touch-panning orientation with relative gyro device motion
+                camera.quaternion.copy(panQuat).multiply(gyroDelta);
             } else {
-                if (state.autoRotate && !state.isUserInteracting) {
-                    state.lon += 0.1 * state.autoRotateSpeed;
-                }
-
-                state.lat = Math.max(-85, Math.min(85, state.lat));
-
                 state.phi = THREE.MathUtils.degToRad(90 - state.lat);
                 state.theta = THREE.MathUtils.degToRad(state.lon);
 
