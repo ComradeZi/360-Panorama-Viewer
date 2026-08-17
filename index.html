@@ -177,11 +177,11 @@
                     </svg>
                 </button>
 
-                <!-- Dual Eye VR Mode Toggle -->
-                <button id="btn-vr-mode" class="p-2 hover:bg-slate-800/80 rounded-xl transition text-slate-300 hover:text-white flex items-center space-x-1" title="Toggle VR Stereoscopic Mode">
-                    <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z" />
+                <!-- Gyroscope Mode Toggle -->
+                <button id="btn-gyro-mode" class="p-2 hover:bg-slate-800/80 rounded-xl transition text-slate-300 hover:text-white flex items-center space-x-1" title="Toggle Mobile Gyroscope Navigation">
+                    <svg class="w-5 h-5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18a6 6 0 100-12 6 6 0 000 12z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 2v4m0 12v4m10-10h-4M6 12H2" />
                     </svg>
                 </button>
 
@@ -426,6 +426,10 @@
             autoRotateSpeed: 0.5,
             sensitivity: 1.0,
             vrMode: false,
+            gyroMode: false,
+            gyroAlpha: 0,
+            gyroBeta: 0,
+            gyroGamma: 0,
             addingHotspotMode: false,
             brightness: 100,
             contrast: 100,
@@ -656,7 +660,7 @@
             settingFov.addEventListener('input', (e) => updateFov(parseFloat(e.target.value)));
 
             btnAutoRotate.addEventListener('click', toggleAutoRotate);
-            document.getElementById('btn-vr-mode').addEventListener('click', toggleVRMode);
+            document.getElementById('btn-gyro-mode').addEventListener('click', toggleGyroMode);
             document.getElementById('btn-reset-view').addEventListener('click', resetView);
             document.getElementById('btn-fullscreen').addEventListener('click', toggleFullscreen);
             document.getElementById('btn-screenshot').addEventListener('click', captureScreenshot);
@@ -835,12 +839,91 @@
             btnAutoRotate.classList.toggle('bg-blue-500/20', state.autoRotate);
         }
 
+        // Device Orientation / Gyroscope Controls
+        const zee = new THREE.Vector3(0, 0, 1);
+        const gyroEuler = new THREE.Euler();
+        const gyroQ0 = new THREE.Quaternion();
+        const gyroQ1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+
+        function setCameraQuaternionFromDeviceOrientation(quaternion, alpha, beta, gamma, orient) {
+            gyroEuler.set(
+                THREE.MathUtils.degToRad(beta),
+                THREE.MathUtils.degToRad(alpha),
+                -THREE.MathUtils.degToRad(gamma),
+                'YXZ'
+            );
+            quaternion.setFromEuler(gyroEuler);
+            quaternion.multiply(gyroQ1);
+            quaternion.multiply(gyroQ0.setFromAxisAngle(zee, -THREE.MathUtils.degToRad(orient)));
+        }
+
+        function toggleGyroMode() {
+            if (!state.gyroMode) {
+                // iOS 13+ requires explicit user gesture permission
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    DeviceOrientationEvent.requestPermission()
+                        .then(permissionState => {
+                            if (permissionState === 'granted') {
+                                enableGyro();
+                            } else {
+                                showNotification('Gyroscope access permission denied.');
+                            }
+                        })
+                        .catch(err => {
+                            console.error(err);
+                            showNotification('Gyroscope error or unsupported device.');
+                        });
+                } else if ('DeviceOrientationEvent' in window) {
+                    enableGyro();
+                } else {
+                    showNotification('Gyroscope not supported on this device/browser.');
+                }
+            } else {
+                disableGyro();
+            }
+        }
+
+        function enableGyro() {
+            window.addEventListener('deviceorientation', onDeviceOrientation, true);
+            state.gyroMode = true;
+            const btnGyro = document.getElementById('btn-gyro-mode');
+            btnGyro.classList.add('bg-cyan-500/30', 'border', 'border-cyan-400');
+            showNotification('Gyroscope Navigation Enabled');
+        }
+
+        function disableGyro() {
+            window.removeEventListener('deviceorientation', onDeviceOrientation, true);
+            state.gyroMode = false;
+            const btnGyro = document.getElementById('btn-gyro-mode');
+            btnGyro.classList.remove('bg-cyan-500/30', 'border', 'border-cyan-400');
+            showNotification('Gyroscope Disabled');
+        }
+
+        function onDeviceOrientation(event) {
+            if (event.alpha !== null && event.beta !== null && event.gamma !== null) {
+                state.gyroAlpha = event.alpha;
+                state.gyroBeta = event.beta;
+                state.gyroGamma = event.gamma;
+            }
+        }
+
+        function showNotification(message) {
+            let toast = document.getElementById('toast-notification');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'toast-notification';
+                toast.className = 'fixed top-16 left-1/2 -translate-x-1/2 glass-panel border border-cyan-500/40 px-4 py-2 rounded-xl text-xs text-cyan-300 z-50 transition-opacity duration-300 pointer-events-none shadow-xl';
+                document.body.appendChild(toast);
+            }
+            toast.innerText = message;
+            toast.style.opacity = '1';
+            setTimeout(() => {
+                toast.style.opacity = '0';
+            }, 3000);
+        }
+
         function toggleVRMode() {
             state.vrMode = !state.vrMode;
-            const btnVR = document.getElementById('btn-vr-mode');
-            btnVR.classList.toggle('bg-indigo-500/30', state.vrMode);
-            btnVR.classList.toggle('border', state.vrMode);
-            btnVR.classList.toggle('border-indigo-400', state.vrMode);
             onWindowResize();
         }
 
@@ -1059,20 +1142,37 @@
         }
 
         function update() {
-            if (state.autoRotate && !state.isUserInteracting) {
-                state.lon += 0.1 * state.autoRotateSpeed;
+            if (state.gyroMode) {
+                const orientation = window.orientation || (window.screen && window.screen.orientation ? window.screen.orientation.angle : 0);
+                setCameraQuaternionFromDeviceOrientation(
+                    camera.quaternion,
+                    state.gyroAlpha,
+                    state.gyroBeta,
+                    state.gyroGamma,
+                    orientation
+                );
+
+                // Sync spherical direction vector back to state.lat/lon for smooth manual transition
+                const dir = new THREE.Vector3();
+                camera.getWorldDirection(dir);
+                state.lat = THREE.MathUtils.radToDeg(Math.asin(dir.y));
+                state.lon = THREE.MathUtils.radToDeg(Math.atan2(dir.z, dir.x));
+            } else {
+                if (state.autoRotate && !state.isUserInteracting) {
+                    state.lon += 0.1 * state.autoRotateSpeed;
+                }
+
+                state.lat = Math.max(-85, Math.min(85, state.lat));
+
+                state.phi = THREE.MathUtils.degToRad(90 - state.lat);
+                state.theta = THREE.MathUtils.degToRad(state.lon);
+
+                camera.target.x = 500 * Math.sin(state.phi) * Math.cos(state.theta);
+                camera.target.y = 500 * Math.cos(state.phi);
+                camera.target.z = 500 * Math.sin(state.phi) * Math.sin(state.theta);
+
+                camera.lookAt(camera.target);
             }
-
-            state.lat = Math.max(-85, Math.min(85, state.lat));
-
-            state.phi = THREE.MathUtils.degToRad(90 - state.lat);
-            state.theta = THREE.MathUtils.degToRad(state.lon);
-
-            camera.target.x = 500 * Math.sin(state.phi) * Math.cos(state.theta);
-            camera.target.y = 500 * Math.cos(state.phi);
-            camera.target.z = 500 * Math.sin(state.phi) * Math.sin(state.theta);
-
-            camera.lookAt(camera.target);
 
             telemetryCoords.innerText = `${state.lon.toFixed(1)}° / ${state.lat.toFixed(1)}°`;
 
